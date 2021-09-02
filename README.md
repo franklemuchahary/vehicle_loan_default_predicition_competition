@@ -25,4 +25,4 @@ Followed the approaches mentioned below to score a **Private LB Score of 0.6716 
 * My Final Models consists of 4 CatBoost Models and an 9 LightGBM Models blended together using simple arithmetic mean and weighted blending. CatBoost with GPU and indices of categorical features turned out to be very fast and my single model with both the highest CV and Public LB. All my models were manually tuned except for one LightGBM Model which was tuned using bayesian tuning. 
 * Other Things I tried: Experimented with Time Based CV strategy, Neural Networks, Polynomial Interaction of features + PCA, Oversampling etc but these did not show improvements in my CV score. 
 
-Note: The file `Main.ipynb` contains all the codes that needs to be run in the correct order to obtain the final model
+**Note**: The file `Main.ipynb` contains all the codes that needs to be run in the correct order to obtain the final model
