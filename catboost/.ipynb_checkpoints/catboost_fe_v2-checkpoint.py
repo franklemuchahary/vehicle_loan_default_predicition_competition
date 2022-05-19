@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[3]:
+# In[2]:
 
 
 import pandas as pd
@@ -12,6 +12,7 @@ import gc
 from collections import Counter
 import math
 import random
+from tqdm import tqdm
 
 #%matplotlib inline
 
@@ -22,14 +23,16 @@ import random
 from sklearn.model_selection import StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn import preprocessing
+from category_encoders import target_encoder, TargetEncoder
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 from imblearn.over_sampling import RandomOverSampler, SMOTE
+import catboost as cb
 
-#!ls 
-# #### Helper Functions
+pd.set_option('display.max_columns', 200)
 
-# In[4]:
+
+# In[3]:
 
 
 def label_encoding_func(df_name, df_col_name):
@@ -40,10 +43,6 @@ def label_encoding_func(df_name, df_col_name):
     le.fit(df_name[df_col_name])
     return le.transform(df_name[df_col_name])
 
-
-# In[5]:
-
-
 def do_one_hot_encoding(df_name, df_column_name, suffix=''):
     '''
     usage: dataframe[column_name] = do_one_hot_encoding(dataframe, column_name, suffix_for_column_name)
@@ -53,19 +52,26 @@ def do_one_hot_encoding(df_name, df_column_name, suffix=''):
     df_name = df_name.drop(df_column_name, axis=1) 
     return df_name
 
+#function for perform target encoding later on
+def perform_target_encoding(columns, X, Y, X_Val, X_Test):
+    for i in tqdm(columns):
+        target_enc = TargetEncoder(cols=[i], smoothing=3)
+        target_enc_fit = target_enc.fit(X, Y)
+        X[i] = target_enc.transform(X, Y)[i]
+        X_Val[i] = target_enc.transform(X_Val)[i]
+        X_Test[i] = target_enc.transform(X_Test)[i]
+        
+    return X, X_Val, X_Test
 
-# #### Load Data
 
-# In[1]:
+# ### Load Feature Engineered Datasets
+
+# In[3]:
 
 
 path = '../../feature_engineering_eda_data/' 
 train_file = 'train_feature_engineered_V2.csv'
 test_file = 'test_feature_engineered_V2.csv'
-
-
-# In[4]:
-
 
 train_df = pd.read_csv(path+train_file)
 test_df = pd.read_csv(path+test_file)
@@ -75,137 +81,120 @@ sample_submission = pd.read_csv(path+'sample_submission_24jSKY6.csv')
 # In[5]:
 
 
-print(train_df.shape)
-print(test_df.shape)
-
-
-# #### Sample Data
-
-# In[99]:
-
-
-pd.set_option('display.max_columns', 100)
-
-
-# In[100]:
-
-
 train_df.head()
 
 
-# In[101]:
+# In[6]:
 
 
 test_df.head()
 
 
-# ## Data Cleaning / Exploration
+# ### Combine Train and Test
 
-# #### Distribution of Target
-
-# In[102]:
+# In[7]:
 
 
-print(train_df['loan_default'].value_counts()/sum(train_df['loan_default'].value_counts()))
-(train_df['loan_default'].value_counts()/sum(train_df['loan_default'].value_counts())).plot(kind='bar')
-plt.show()
-
-
-# #### Remove cols from train and test and separate target
-
-# In[103]:
-
-
-cols_to_exclude = ['loan_default', 'UniqueID', 'SEC.ACTIVE.ACCTS', 'SEC.OVERDUE.ACCTS',
-                  'SEC.CURRENT.BALANCE', 'SEC.SANCTIONED.AMOUNT', 'SEC.DISBURSED.AMOUNT', 
-                  'MobileNo_Avl_Flag', 'Passport_flag', 'Driving_flag']
-
-X_train = train_df[train_df.columns.difference(cols_to_exclude)]
-X_test = test_df[test_df.columns.difference(cols_to_exclude)]
+X_train = train_df[train_df.columns.difference(['loan_default', 'UniqueID'])]
+X_test = test_df[train_df.columns.difference(['loan_default', 'UniqueID'])]
 Y = train_df['loan_default']
-
-
-# In[104]:
-
 
 ### Concat train and test for common preprocessing
 concat_df = pd.concat([X_train, X_test], keys=['train', 'test'])
 
 
-# In[105]:
+# In[8]:
 
 
 concat_df.head()
 
 
-# #### Check for nulls
-
-# In[106]:
+# In[9]:
 
 
+#filling NAs with 0
 concat_df.isna().sum(axis=0).reset_index().T
 
 
-# In[107]:
+# ### More Features
+
+# In[10]:
+
+
+concat_df['employee_id_branch_id'] = concat_df['branch_id'].apply(str)+"-"+concat_df['Employee_code_ID'].apply(str)
+
+bins = [-np.inf, 20, 25, 30, 35, 40, 45, 50, np.inf]
+labels = [1,2,3,4,5,6,7,8]
+
+concat_df['F6_age_bins'] = np.asarray(pd.cut(concat_df['F6_age_at_disbursal'], bins=bins, labels=labels).values)
+
+
+# In[11]:
+
+
+concat_df['F10.3_CREDIT.HIST_DAYS'] = (concat_df['F10.1_CREDIT.HIST_Y'] * 365) +                                        (concat_df['F10.2_CREDIT.HIST_M'] * 30)
+
+concat_df['F9.3_AVG.ACCT.AGE_DAYS'] = (concat_df['F9.1_AVG.ACCT.AGE_Y'] * 365) +                                        (concat_df['F9.2_AVG.ACCT.AGE_M'] * 30)
+
+concat_df['BalancePerActiveAccount'] = concat_df['PRI.CURRENT.BALANCE']/concat_df['PRI.ACTIVE.ACCTS']
+
+concat_df['PRI.NoOfInstallmentsLeft'] = concat_df['PRI.CURRENT.BALANCE']/concat_df['PRIMARY.INSTAL.AMT']
+
+concat_df['Disbursed_CurrentBalance_Diff'] = concat_df['disbursed_amount'] - concat_df['PRI.CURRENT.BALANCE']
+
+#combine primary and secondary values
+concat_df['TotalInstallAmt'] = concat_df['PRIMARY.INSTAL.AMT'] + concat_df['SEC.INSTAL.AMT']
+concat_df['TotalDisbAmt'] = concat_df['PRI.DISBURSED.AMOUNT'] + concat_df['SEC.DISBURSED.AMOUNT']
+concat_df['TotalCurrentBalance'] = concat_df['PRI.CURRENT.BALANCE'] + concat_df['SEC.CURRENT.BALANCE']
+concat_df['TotalActiveAccts'] = concat_df['PRI.ACTIVE.ACCTS'] + concat_df['SEC.ACTIVE.ACCTS']
+concat_df['TotalOverdueAccts'] = concat_df['PRI.OVERDUE.ACCTS'] + concat_df['SEC.OVERDUE.ACCTS']
+concat_df['TotalAccts'] = concat_df['PRI.NO.OF.ACCTS'] + concat_df['SEC.NO.OF.ACCTS']
+concat_df['TotalSancAmt'] = concat_df['PRI.SANCTIONED.AMOUNT'] + concat_df['SEC.SANCTIONED.AMOUNT']
+
+
+# ### Dealing with NAs and Label Encoding Categorical features
+
+# In[12]:
 
 
 #### replace nulls as a new category
 concat_df['Employment.Type'].fillna('NA', inplace=True)
 
+concat_df.fillna(0, inplace=True)
 
-# #### Some New Features
+### replace -inf and +inf with 0
 
-# In[108]:
+#filling infs
+for i in concat_df.columns.values:
+    if (len(concat_df.loc[concat_df[i] == np.inf, i]) != 0)or(len(concat_df.loc[concat_df[i] == -np.inf, i]) != 0):
+        print(i)
+        concat_df.loc[concat_df[i] == np.inf, i] = 0
+        concat_df.loc[concat_df[i] == -np.inf, i] = 0
 
 
-concat_df['employee_id_branch_id'] = concat_df['branch_id'].apply(str)+"-"+concat_df['Employee_code_ID'].apply(str)
-
-
-# #### Label encode strings
-
-# In[109]:
+# In[13]:
 
 
 def label_encode_apply(df):
     if df[0] == object:
-        print(df['index'])
         concat_df[df['index']] = label_encoding_func(concat_df, df['index'])
         
 _ = concat_df.dtypes.reset_index().apply(label_encode_apply, axis=1)
 print('Done')
 
 
-# In[110]:
+# ### Split Train Test
 
-
-concat_df.head()
-
-
-# #### Separate train and test
-
-# In[111]:
+# In[14]:
 
 
 X_train = concat_df.loc['train']
 X_test = concat_df.loc['test']
 
 
-# In[112]:
+# ### Yet More Features
 
-
-print(X_train.shape)
-print(X_test.shape)
-
-
-# In[134]:
-
-
-50/107
-
-
-# #### FE Functions
-
-# In[119]:
+# In[15]:
 
 
 ### this function is for running inside cv
@@ -258,7 +247,7 @@ def generate_averaged_features(train, val, test, variable=''):
          suffixes=('', '_mean_branch_F13.2'))
         list_of_dfs[i] = pd.merge(list_of_dfs[i], employee_code_id, how='left', on='Employee_code_ID', 
          suffixes=('', '_mean_employeeid_F13.3'))
-        list_of_dfs[i] = pd.merge(list_of_dfs[i], employee_code_id_branch_id, how='left', on='employee_id_branch_id', 
+        list_of_dfs[i] = pd.merge(list_of_dfs[i], employee_code_id_branch_id, how='left',on='employee_id_branch_id', 
          suffixes=('', '_mean_employee_id_branch_id_F13.4'))
         list_of_dfs[i] = pd.merge(list_of_dfs[i], supplier_id, how='left', on='supplier_id', 
          suffixes=('', '_mean_supplier_id_F13.5'))
@@ -269,25 +258,45 @@ def generate_averaged_features(train, val, test, variable=''):
     return train, val, test  
 
 
-# In[120]:
+# ### Specify cols to TE inside CV and categorical cols for catboost
+
+# In[16]:
 
 
-X_train.columns.values
+cols_to_target_encode = ['DELINQUENT.ACCTS.IN.LAST.SIX.MONTHS', 'F6_age_bins',
+                        'manufacturer_id', 'State_ID', 'Employment.Type', 'PRI.OVERDUE.ACCTS',
+                        'PRI.ACTIVE.ACCTS', 'F7.1_DOB_Y', 'PERFORM_CNS.SCORE.DESCRIPTION', 'SEC.NO.OF.ACCTS',
+                        'NO.OF_INQUIRIES', 'NEW.ACCTS.IN.LAST.SIX.MONTHS']
 
 
-# ## Baseline Model Building
+# In[17]:
 
-# In[121]:
+
+for i,j in enumerate(X_train.columns):
+    print(i,j, end=" || ")
+
+
+# In[18]:
+
+
+categorical_col_indices = [0, 1, 17, 18, 5, 8, 9, 37, 46, 6, 52, 48, 63, 64]
+
+
+# ### Model with 10 Fold CV
+
+# In[19]:
 
 
 strf_split = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 
 
-# In[136]:
+# In[20]:
 
 
+train_preds_list_oof_semi_stacking = []
 val_auc_scores = []
 test_preds_list = []
+
 all_train_predictions = np.zeros([X_train.shape[0]])
 
 cv_counter = 1
@@ -301,9 +310,9 @@ for train_idx, val_idx in strf_split.split(X_train, Y):
     t_y = Y[train_idx]
     v_y = Y[val_idx]
     
-    
     test_x = X_test.copy()
 
+    print('Generating New Features: ')
     #generate new features
     t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'ltv')
     t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'PRI.CURRENT.BALANCE')
@@ -314,109 +323,102 @@ for train_idx, val_idx in strf_split.split(X_train, Y):
     t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'F4_avg_primary_disbursed_amt')
     t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'F2_difference_asset_disbursed')
     t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'PRI.NO.OF.ACCTS')
-    
+    t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'F6_age_at_disbursal')
+    t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'TotalCurrentBalance')
+    t_x, v_x, test_x = generate_averaged_features(t_x, v_x, test_x, 'TotalInstallAmt')
     
     t_x, v_x, test_x = generate_summed_features(t_x, v_x, test_x, 'PRI.ACTIVE.ACCTS')
     t_x, v_x, test_x = generate_summed_features(t_x, v_x, test_x, 'PRI.OVERDUE.ACCTS')
     t_x, v_x, test_x = generate_summed_features(t_x, v_x, test_x, 'DELINQUENT.ACCTS.IN.LAST.SIX.MONTHS')
     t_x, v_x, test_x = generate_summed_features(t_x, v_x, test_x, 'NO.OF_INQUIRIES')
+    t_x, v_x, test_x = generate_summed_features(t_x, v_x, test_x, 'TotalActiveAccts')
+    t_x, v_x, test_x = generate_summed_features(t_x, v_x, test_x, 'TotalOverdueAccts')
+    
+    
+    print('Target Encoding: ')
+    t_x, v_x, test_x = perform_target_encoding(cols_to_target_encode, t_x, t_y, v_x, test_x)
     
     
     print("Train Shape: ", t_x.shape)
     print("Val Shape: ", v_x.shape)
     print("Test Shape: ", test_x.shape, end="\n\n")
     
+    params = {
+            'eval_metric': 'AUC',
+            'learning_rate': 0.01,
+            'random_seed': 12321,
+            'l2_leaf_reg': 15,
+            'bootstrap_type': 'Bernoulli',
+            #'bagging_temperature': 0.3,
+            'subsample': 0.5,
+            'max_depth': 8,
+            'feature_border_type': 'MinEntropy',
+            'thread_count': 4, 
+            'objective': 'CrossEntropy',
+            #'min_data_in_leaf': 100,
+            'task_type': 'GPU',
+            'od_type': 'Iter'
+        }
+
+    #print(t_x.iloc[:,categorical_col_indices])
     
+    dtrain = cb.Pool(t_x, label=t_y, cat_features=categorical_col_indices)
+    dvalid = cb.Pool(v_x, label=v_y, cat_features=categorical_col_indices)
+    dtest = cb.Pool(test_x, cat_features=categorical_col_indices)
+        
+    model = cb.train(dtrain=dtrain, params = params, num_boost_round=8000, eval_set=[dvalid], early_stopping_rounds=500, 
+        verbose_eval=200) 
     
-    
-    params = {}
-    params['learning_rate'] = 0.009
-    params['boosting_type'] = 'gbdt'
-    params['objective'] = 'binary'
-    params['metric'] = 'auc'
-    params['feature_fraction'] = 0.4
-    params['bagging_freq'] = 5
-    params['bagging_fraction'] = 0.38
-    params['num_leaves'] = 1000
-    params['min_data_in_leaf'] = 80
-    params['max_depth'] = 35
-    params['num_threads'] = 20
-    params['tree_learner'] = 'serial'
-    params['min_sum_hessian_in_leaf'] = 0.001
-    params['boost_from_average'] = False
-    params['lambda_l1'] = 9
-    params['lambda_l2'] = 5
-    
-    
-    d_train = lgb.Dataset(t_x, label=t_y)
-    d_valid = lgb.Dataset(v_x, label=v_y)
-    
-    
-    model = lgb.train(params, d_train, 3000, early_stopping_rounds=300, valid_sets=[d_train, d_valid], 
-                         verbose_eval=50)
-    
-   
-    
-    val_preds = model.predict(v_x)
-    val_score = roc_auc_score(v_y, val_preds)
-    
-    all_train_predictions[val_idx] = val_preds
+    val_preds = model.predict(dvalid, prediction_type='Probability')
+    val_score = roc_auc_score(v_y, val_preds[:,1])
     
     print(val_score)
     
     val_auc_scores.append(val_score)
     
         
-    test_preds = model.predict(test_x)
-    test_preds_list.append(test_preds)
+    test_preds = model.predict(dtest, prediction_type='Probability')
+    test_preds_list.append(test_preds[:,1])
+    
+    all_train_predictions[val_idx] = val_preds[:,1]
     
     cv_counter+=1
     
     print("============"*8, end="\n\n")
 
 
-# In[137]:
+# In[21]:
 
 
 print("CV Score: ", np.mean(val_auc_scores))
 
-#pd.DataFrame({
-#    'cols': t_x.columns.values,
-#    'imp_values': model.feature_importance()
-#}).sort_values('imp_values', ascending=False).T
-# In[139]:
+
+# In[22]:
 
 
 ### Combine all CV preds for test
 test_preds_cv = pd.DataFrame(np.asarray(test_preds_list).T).mean(axis=1).values
 
 
-# In[140]:
-
-
-### train predictions
-
-train_preds_cv = pd.DataFrame({
-    'UniqueID': train_df['UniqueID'].values,
-    'TrainPreds': all_train_predictions
-})
-
-train_preds_cv.head()
-
-
-# #### Prep Submission
-
-# In[142]:
+# In[23]:
 
 
 sample_submission['loan_default'] = test_preds_cv
-
+#sample_submission['loan_default'] = sample_submission['loan_default'].rank(pct=True)
 sample_submission.head()
 
 
-# In[143]:
+# In[24]:
 
 
-sample_submission.to_csv('lgb4.csv', index=False)
-#train_preds_cv.to_csv('LGB_FE_2_InsideCV_10foldCV_19thApril_2_TRAIN.csv', index=False)
+train_oof_preds = train_df[['UniqueID', 'loan_default']].copy()
+train_oof_preds['loan_default'] = all_train_predictions
+train_oof_preds.head()
+
+
+# In[25]:
+
+
+sample_submission.to_csv('cb2.csv', index=False)
+#train_oof_preds.to_csv('cb2_Train.csv', index=False)
 

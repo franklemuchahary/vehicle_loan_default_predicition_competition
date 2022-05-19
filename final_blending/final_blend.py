@@ -12,13 +12,14 @@ from scipy.stats import gmean
 # In[366]:
 
 
-cb2 = pd.read_csv('../catboost/blend9/cb2.csv')
-cb3 = pd.read_csv('../catboost/blend9/cb3.csv')
-cb4 = pd.read_csv('../catboost/blend10/cb4.csv')
+cb1 = pd.read_csv('../catboost/cb1.csv')
+cb2 = pd.read_csv('../catboost/cb2.csv')
+cb3 = pd.read_csv('../catboost/cb3.csv')
 
-blend2_df = pd.read_csv('../lightgbm/lgbm_blend2/blend2.csv')
-blend7_df = pd.read_csv('../lightgbm/lgbm_blend7/blend7.csv')
-blend10_df = pd.read_csv('../catboost/blend10/blend10.csv')
+lgb2 = pd.read_csv('../lightgbm/lgb2_base_features_oversampled.csv')
+lgb4 = pd.read_csv('../lightgbm/lgb4_base_features_goss_ov.csv')
+lgb5 = pd.read_csv('../lightgbm/lgb5_feV1_oversampling.csv')
+lgb6 = pd.read_csv('../lightgbm/lgb6_fe_bayestune_oversampling.csv')
 
 
 # In[3]:
@@ -29,41 +30,18 @@ path = "../feature_engineering_eda_data/"
 sample_submission = pd.read_csv(path+'sample_submission_24jSKY6.csv')
 
 
-# In[368]:
-
-
-cb2.head()
-
-
-# In[369]:
-
-
-cb3.head()
-
-
-# In[370]:
-
-
-cb4.head()
-
-
-# In[325]:
-
-
-blend7_df.head()
-
-
 # ### Blending - Weighted and Geometric Mean
 
 # In[386]:
 
 
-gmean_df = pd.concat([cb2['loan_default'],
-                    cb4['loan_default'], 
+gmean_df = pd.concat([cb1['loan_default'],
+                    cb2['loan_default'], 
                     cb3['loan_default'],
-                    blend7_df['loan_default'],
-                    blend10_df['loan_default'],
-                    blend2_df['loan_default']], axis=1)
+                    lgb2['loan_default'],
+                    lgb4['loan_default'],
+                    lgb5['loan_default'],
+                    lgb6['loan_default']], axis=1)
 
 simple_gmean = gmean(gmean_df, axis=1)
 simple_gmean
@@ -88,7 +66,7 @@ sample_submission.head()
 # In[384]:
 
 
-sample_submission.to_csv('final_blend.csv', index=False)
+sample_submission.to_csv('final_gmean_blend.csv', index=False)
 
 
 # In[1]:
