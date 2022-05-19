@@ -1,6 +1,6 @@
 # README #
 
-### Vehicle Loan Default Prediction Task on Analytics Vidhya
+### Vehicle Loan Default Prediction Task (AV)
 
 Financial institutions incur significant losses due to the default of vehicle loans. The need for a better credit risk scoring model is also raised by these institutions. This warrants a study to estimate the determinants of vehicle loan default. The task here is to accurately predict the probability of loanee/borrower defaulting on a vehicle loan in the first EMI (Equated Monthly Instalments) on the due date. Following Information regarding the loan and loanee are provided in the datasets:  
 * Loanee Information (Demographic data like age, Identity proof etc.). 
@@ -22,7 +22,7 @@ Followed the approaches mentioned below to score a **Private LB Score of 0.6716 
 	* Some averaged features created were: avg ltv, avg disbursed amount, avg primary current balance etc averaged across state_id, current_pincode, branch_id, supplier_id etc.
 	* Some summed features created were: sum of primary overdue accounts, sum of primary active accounts, sum of number of enquiries etc summed across state_id, pincode, branch_id, supplier_id etc.
 * Used Target Encoding on some features like manufacturer_id, state_id, DOB_year, Emplyoyment Type, CNS Score Description, Age Bins etc which also improved the CV by ~0.0005. 
-* My Final Models consists of 3 CatBoost Models and an 4 LightGBM Models blended together using geometric mean and weighted blending. CatBoost with GPU and indices of categorical features turned out to be very fast and my single model with both the highest CV and Public LB. All my models were manually tuned except for one LightGBM Model which was tuned using bayesian tuning. 
+* My Final Models consists of 3 CatBoost Models and an 4 LightGBM Models blended together using geometric mean. CatBoost with GPU and indices of categorical features turned out to be very fast and my single model with both the highest CV and Public LB. All my models were manually tuned except for one LightGBM Model which was tuned using bayesian tuning. 
 * Other Things I tried: Experimented with Time Based CV strategy, Neural Networks, Polynomial Interaction of features + PCA, Oversampling etc but these did not show improvements in my CV score. 
 
 **Note**: The file `Main.ipynb` contains all the codes that needs to be run in the correct order to obtain the final model
